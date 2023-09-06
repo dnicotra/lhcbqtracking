@@ -61,7 +61,7 @@ def circuit(raw_hits):
 
     # Set hits to C++ hits
     print("Creating hits....")
-    hits = [q_event_model.hit(0, x, y, z, 0, 0) for [x, y, z] in raw_hits]
+    hits = [q_event_model.hit(0, x, y, z, module_id, 0) for [x, y, z, module_id] in raw_hits]
     print(hits)
     print("Setting hits")
     event.hits = hits
