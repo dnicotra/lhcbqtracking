@@ -1,7 +1,5 @@
 import os
 import sys
-
-import q_event_model
 import q_event_model as em
 import toymodel_3d as toy
 import regularized_hamiltonian_3d as ham
@@ -55,20 +53,39 @@ def initialize_qiskit(b):
 
 
 def circuit(raw_hits):
+    # raw_hits is a list of tuples (x,y,z,module_id) 
+    
     # Generate toy sequence
-    detector = toy.generate_simple_detector(N_MODULES, LX, LY, SPACING)
-    event = toy.generate_event(detector, N_TRACKS, theta_max=np.pi / 50, seed=1)
+    #detector = toy.generate_simple_detector(N_MODULES, LX, LY, SPACING)
+    #event = toy.generate_event(detector, N_TRACKS, theta_max=np.pi / 50, seed=1)
 
     # Set hits to C++ hits
     print("Creating hits....")
-    hits = [q_event_model.hit(0, x, y, z, module_id, 0) for [x, y, z, module_id] in raw_hits]
-    print(hits)
-    print("Setting hits")
-    event.hits = hits
+    hits = []
+    module_dict = dict()
+    for hit_id, raw_hit in enumerate(raw_hits):
+        x,y,z = raw_hit[:3]
+        module_id = raw_hit[3]
+        
+        hit = em.hit(hit_id, x,y,z,module_id, -1)
+        
+        if module_id in module_dict:
+            module_dict[module_id].append(hit)
+        else:
+            module_dict[module_id] = list().append(hit)
+
+    
+    modules = []
+    for module_id, module_hits in module_dict.items():
+        modules.append(em.module(module_id, -1, -1, -1, module_hits))
+    
+    # Setting the event
+    event = em.event(modules, None, hits)
+    
     print("Creating unitary")
-    # result = create_unitary(event)
+    result = create_unitary(event)
     # print(type(result), len(result), result(0))
-    return np.ones((30, 30), dtype=np.complex) * (0.6 + 0.3j)
+    return result
 
 
 def create_unitary(event, return_all=False):
