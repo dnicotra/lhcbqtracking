@@ -51,6 +51,7 @@ def initialize_qiskit(b):
 
     return solver, b_circuit
 
+from collections import defaultdict
 
 def circuit(raw_hits):
     # raw_hits is a list of tuples (x,y,z,module_id) 
@@ -62,17 +63,14 @@ def circuit(raw_hits):
     # Set hits to C++ hits
     print("Creating hits....")
     hits = []
-    module_dict = dict()
+    module_dict = defaultdict(list)
     for hit_id, raw_hit in enumerate(raw_hits):
         x,y,z = raw_hit[:3]
         module_id = raw_hit[3]
         
         hit = em.hit(hit_id, x,y,z,module_id, -1)
         
-        if module_id in module_dict:
-            module_dict[module_id].append(hit)
-        else:
-            module_dict[module_id] = list().append(hit)
+        module_dict[module_id].append(hit)
 
     
     modules = []
