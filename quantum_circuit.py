@@ -8,6 +8,7 @@ import matplotlib
 # matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import itertools
+import pickle
 import random
 
 from qiskit.algorithms.linear_solvers import hhl
@@ -21,6 +22,35 @@ from collections import namedtuple, defaultdict
 random.seed(1)
 
 Hit = namedtuple("Hit", ["x", "y", "z", "hit_id", "mod_id"])
+
+def load_dump(path):
+    """
+    Dump has the following format
+
+    (hits, tracks)
+
+    Where hit is formatted as:
+     (x, y, z, hit_id, module_id)
+
+    And track is formatted as
+     list(hit_id)
+    """
+    with open(path, "rb") as f:
+        obj = pickle.load(f)
+        
+    hits = [Hit(*o) for o in obj[0]]
+    
+    mcps = obj[1]
+    
+    
+    module2hitids = defaultdict(set)
+    hitid2hit = {}
+    for hit in hits:
+        module2hitids[hit.mod_id].add(hit.hit_id)
+        hitid2hit[hit.hit_id] = hit
+
+    return hits, module2hitids, hitid2hit, mcps
+
 def parse(raw_hits):
         
     hits = [Hit(*o) for o in raw_hits]
@@ -73,7 +103,7 @@ def generate_hamiltonian(event):
     params = {
         'alpha': 0.0,
         'delta': 1.0,
-        'eps': 1e-9,
+        'eps': 1e-5,
         'gamma': 2
     }
     return ham.generate_hamiltonian(event, params)
@@ -99,15 +129,7 @@ def initialize_qiskit(b):
 
     return solver, b_circuit
 
-def circuit(raw_hits, mcps):
-    # raw_hits is a list of tuples (x,y,z,hit_id,module_id) 
-    
-    # Generate toy sequence
-    #detector = toy.generate_simple_detector(N_MODULES, LX, LY, SPACING)
-    #event = toy.generate_event(detector, N_TRACKS, theta_max=np.pi / 50, seed=1)
-
-    # Set hits to C++ hits
-    
+def create_event(raw_hits, mcps):
     _, _, hitid2hit = parse(raw_hits)
     
     filtered_hits = filtering(hitid2hit, mcps, modules=[6,7,8], n_particles=2)
@@ -121,14 +143,26 @@ def circuit(raw_hits, mcps):
         hit = em.hit(hit_id, picked_hit.x,picked_hit.y,picked_hit.z,picked_hit.mod_id, -1)
         
         module_dict[picked_hit.mod_id].append(hit)
-
+        hits.append(hit)
     
     modules = []
     for module_id, module_hits in module_dict.items():
-        modules.append(em.module(module_id, -1, -1, -1, module_hits))
+        modules.append(em.module(module_id, module_id, -1, -1, module_hits))
     
     # Setting the event
     event = em.event(modules, None, hits)
+    return event
+
+def circuit(raw_hits, mcps):
+    # raw_hits is a list of tuples (x,y,z,hit_id,module_id) 
+    
+    # Generate toy sequence
+    #detector = toy.generate_simple_detector(N_MODULES, LX, LY, SPACING)
+    #event = toy.generate_event(detector, N_TRACKS, theta_max=np.pi / 50, seed=1)
+
+    # Set hits to C++ hits
+    event = create_event(raw_hits, mcps)
+    
     
     print("Creating unitary")
     result, lenb = create_unitary(event)
@@ -169,12 +203,27 @@ def show_solution(event, solution_segments):
     plt.show()
 
 
+def print_scatter(hits):
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    xs = [hit.x for hit in hits]
+    ys = [hit.y for hit in hits]
+    zs = [hit.z for hit in hits]
+    print(xs, ys, zs)
+    ax.scatter(xs, ys, zs)
+    plt.show()
+
 def main():
-    detector = toy.generate_simple_detector(N_MODULES, LX, LY, SPACING)
-    event = toy.generate_event(detector, N_TRACKS, theta_max=np.pi / 50, seed=1)
-
+    #detector = toy.generate_simple_detector(N_MODULES, LX, LY, SPACING)
+    #event = toy.generate_event(detector, N_TRACKS, theta_max=np.pi / 50, seed=1)
+    hits, module2hitids, hitid2hit, mcps = load_dump("data.dump")
+    event = create_event(hits, mcps)
+    
+    #print_scatter(event.hits)
     unitary, solver, A, b, segments, b_circuit = create_unitary(event, return_all=True)
-
+    
+    for seg in segments:
+        print(seg)
     backend = qiskit.Aer.get_backend("aer_simulator_statevector")
     result = solver.solve(A, b_circuit)
     sv = Statevector(result.state)
@@ -188,7 +237,7 @@ def main():
     solution_segments = [seg for pseudosol, seg in zip(solution_vector, segments) if pseudosol > 0.45]
 
     # show_solution(event, solution_segments)
-
+    print(solution_vector)
 
 if __name__ == "__main__":
     main()
