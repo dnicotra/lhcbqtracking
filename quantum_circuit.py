@@ -7,11 +7,59 @@ import numpy as np
 import matplotlib
 # matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
+import itertools
+import random
 
 from qiskit.algorithms.linear_solvers import hhl
 import qiskit
 from qiskit.quantum_info import Statevector, Operator
 import qiskit.circuit
+
+from collections import namedtuple, defaultdict
+
+## FIXING THE SEED ##
+random.seed(1)
+
+Hit = namedtuple("Hit", ["x", "y", "z", "hit_id", "mod_id"])
+def parse(raw_hits):
+        
+    hits = [Hit(*o) for o in raw_hits]
+    
+    
+    module2hitids = defaultdict(set)
+    hitid2hit = {}
+    for hit in hits:
+        module2hitids[hit.mod_id].add(hit.hit_id)
+        hitid2hit[hit.hit_id] = hit
+
+    return hits, module2hitids, hitid2hit
+
+def map_track_hit(hitid2hit, tracks, modules = [5, 6, 7]):
+    nice_subset_track_list = []
+    for track in tracks:
+
+        subset_track = []
+        for hit_id in track:
+            hit = hitid2hit.get(hit_id, None)
+            if hit is None:
+                # This is not a real hit, it was created by Monte Carlo method
+                continue
+
+            # This is a real hit from here on
+            if hit.mod_id not in modules:
+                continue
+            
+            subset_track.append(hit)
+        
+        if len(subset_track) == len(modules) and sorted([hit.mod_id for hit in subset_track]) == modules:
+            nice_subset_track_list.append(subset_track)
+
+    return nice_subset_track_list
+
+def filtering(hitid2hit, mcps, modules = [6,7,8], n_particles = 2):
+        nice_tracks = map_track_hit(hitid2hit, mcps, modules)
+        return list(itertools.chain.from_iterable(random.sample(nice_tracks, k=n_particles)))
+
 
 N_MODULES = 3
 N_TRACKS = 2
@@ -51,26 +99,28 @@ def initialize_qiskit(b):
 
     return solver, b_circuit
 
-from collections import defaultdict
-
-def circuit(raw_hits):
-    # raw_hits is a list of tuples (x,y,z,module_id) 
+def circuit(raw_hits, mcps):
+    # raw_hits is a list of tuples (x,y,z,hit_id,module_id) 
     
     # Generate toy sequence
     #detector = toy.generate_simple_detector(N_MODULES, LX, LY, SPACING)
     #event = toy.generate_event(detector, N_TRACKS, theta_max=np.pi / 50, seed=1)
 
     # Set hits to C++ hits
-    print("Creating hits....")
+    
+    _, _, hitid2hit = parse(raw_hits)
+    
+    filtered_hits = filtering(hitid2hit, mcps, modules=[6,7,8], n_particles=2)
+    
+    
+    print("Creating Event....")
     hits = []
     module_dict = defaultdict(list)
-    for hit_id, raw_hit in enumerate(raw_hits):
-        x,y,z = raw_hit[:3]
-        module_id = raw_hit[3]
+    for hit_id, picked_hit in enumerate(filtered_hits):
         
-        hit = em.hit(hit_id, x,y,z,module_id, -1)
+        hit = em.hit(hit_id, picked_hit.x,picked_hit.y,picked_hit.z,picked_hit.mod_id, -1)
         
-        module_dict[module_id].append(hit)
+        module_dict[picked_hit.mod_id].append(hit)
 
     
     modules = []
@@ -81,9 +131,9 @@ def circuit(raw_hits):
     event = em.event(modules, None, hits)
     
     print("Creating unitary")
-    result = create_unitary(event)
+    result, lenb = create_unitary(event)
     # print(type(result), len(result), result(0))
-    return result
+    return result, lenb
 
 
 def create_unitary(event, return_all=False):
@@ -99,7 +149,7 @@ def create_unitary(event, return_all=False):
     if return_all:
         return unitary, solver, A, b, segments, b_circuit
 
-    return unitary
+    return unitary, len(b)
 
 
 def show_solution(event, solution_segments):
